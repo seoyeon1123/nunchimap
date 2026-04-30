@@ -9,7 +9,10 @@
       "Bash(grep -v \"^$\")",
       "Bash(tee /tmp/fetch-cafes-2.log)",
       "Bash(npm test *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Read(//c/Users/lsy_0/Documents/VibeMap/**)",
+      "Bash(npx --yes create-expo-app@latest nunchimap-app --template tabs@latest)",
+      "Bash(npx --yes expo install zustand @tanstack/react-query @react-native-async-storage/async-storage expo-location expo-auth-session expo-crypto expo-web-browser react-native-webview)"
     ]
   }
 }

@@ -10,7 +10,7 @@ import { recomputeAndCache } from '@/lib/signal';
  * GPS 검증 없이 수동 입력. 신뢰도 0.3.
  */
 export async function POST(req: NextRequest) {
-  const session = await readSession();
+  const session = await readSession(req);
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const body = (await req.json()) as {

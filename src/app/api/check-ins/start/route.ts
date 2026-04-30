@@ -27,7 +27,7 @@ function haversine(
  * 카페 100m 이내인지 검증 후 시작 시각만 기록한 check_in 레코드 생성.
  */
 export async function POST(req: NextRequest) {
-  const session = await readSession();
+  const session = await readSession(req);
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

@@ -11,7 +11,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const session = await readSession();
+  const session = await readSession(req);
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const id = Number(params.id);

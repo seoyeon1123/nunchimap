@@ -29,8 +29,24 @@ export async function createSession(payload: SessionPayload): Promise<string> {
     .sign(getKey());
 }
 
-export async function readSession(): Promise<SessionPayload | null> {
-  const token = cookies().get(COOKIE_NAME)?.value;
+/**
+ * 세션 토큰 읽기.
+ * - 웹 (RSC/route handler): 쿠키에서 자동 추출
+ * - 앱 (네이티브): req 의 Authorization: Bearer <jwt> 헤더에서 추출
+ *
+ * route handler 안에서 둘 다 지원하려면 req 를 넘겨주면 됨 — 헤더 우선, 없으면 쿠키 폴백.
+ */
+export async function readSession(
+  req?: Request,
+): Promise<SessionPayload | null> {
+  let token: string | undefined;
+  const authHeader = req?.headers.get('authorization');
+  if (authHeader?.toLowerCase().startsWith('bearer ')) {
+    token = authHeader.slice(7).trim();
+  }
+  if (!token) {
+    token = cookies().get(COOKIE_NAME)?.value;
+  }
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, getKey(), { algorithms: [ALGO] });

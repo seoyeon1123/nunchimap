@@ -3,6 +3,8 @@ import { getServiceClient } from '@/lib/db';
 import { readSession } from '@/lib/auth';
 import { countActiveCheckInsByPlace } from '@/lib/live';
 
+export const dynamic = 'force-dynamic';
+
 const VALID_SIGNALS = ['green', 'yellow', 'red', 'gray'] as const;
 const VALID_TAGS = ['outlet', 'wifi', 'quiet', 'spacious', 'long_stay', 'open_24h'] as const;
 

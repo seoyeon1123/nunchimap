@@ -3,6 +3,8 @@ import { getServiceClient } from '@/lib/db';
 import { readSession } from '@/lib/auth';
 import { isExpoPushToken } from '@/lib/push';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * POST /api/me/push-token
  * Body: { token: string, platform?: 'ios'|'android'|'web', device_id?: string }

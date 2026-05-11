@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/db';
 import { countActiveCheckInsByPlace } from '@/lib/live';
 
+export const dynamic = 'force-dynamic';
+
 interface SearchPlace {
   id: number;
   [k: string]: unknown;

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/places/:id/popular-times?day=0..6
  * 지난 90일 check_ins 를 KST(Asia/Seoul) 기준 요일×시간으로 집계.

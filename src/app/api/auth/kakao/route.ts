@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/auth/kakao?next=/some/path
  * 카카오 OAuth 인증 시작 — 카카오 로그인 페이지로 redirect.

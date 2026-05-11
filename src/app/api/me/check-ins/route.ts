@@ -3,6 +3,8 @@ import { readSession } from '@/lib/auth';
 import { getServiceClient } from '@/lib/db';
 import { expireStaleCheckIns } from '@/lib/checkins';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/me/check-ins?limit=50
  * 현재 로그인 유저의 최근 체크인.

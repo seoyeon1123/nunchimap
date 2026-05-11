@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/db';
 import { createSession, setSessionCookie } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 interface TokenResponse {
   access_token: string;
   refresh_token?: string;

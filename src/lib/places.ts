@@ -61,6 +61,7 @@ export async function loadPlaceDetail(
       .select('id,method,signal,duration_min,text_review,created_at')
       .eq('place_id', id)
       .eq('is_hidden', false)
+      .not('ended_at', 'is', null) // 종료된(=리뷰 작성 완료) 체크인만 노출
       .order('created_at', { ascending: false })
       .limit(5),
     supabase
@@ -75,6 +76,7 @@ export async function loadPlaceDetail(
     .select('id', { count: 'exact', head: true })
     .eq('place_id', id)
     .eq('is_hidden', false)
+    .not('ended_at', 'is', null) // 진행 중 체크인은 아직 검증으로 안 침
     .in('method', ['gps', 'ocr']);
 
   if (placeRes.error || !placeRes.data) return null;

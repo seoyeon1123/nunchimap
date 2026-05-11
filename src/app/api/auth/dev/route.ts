@@ -2,18 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/db';
 import { createSession } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * POST /api/auth/dev
  *
- * 개발 환경 전용 — 카카오 OAuth 우회하고 테스트 유저 JWT 즉시 발급.
- * Expo Go 에서 카카오 로그인 redirect 가 막힐 때나 시뮬레이터/웹에서 빠르게 테스트할 때 사용.
+ * 카카오 OAuth 우회하고 테스트 유저 JWT 즉시 발급.
+ * Expo Go 에서 카카오 redirect 가 막힐 때 / 베타 테스터가 빠르게 들어와볼 때 사용.
  *
- * NODE_ENV=production 에선 404 반환 (배포 환경 노출 방지).
+ * 활성화 조건:
+ *   - NODE_ENV=development                  (로컬 npm run dev)
+ *   - 또는 ENABLE_DEV_LOGIN=true            (Vercel 등 프로덕션 빌드에서도 명시적으로 켤 때)
+ * 둘 다 아니면 404 — 배포 환경 노출 방지.
  *
  * Body (선택): { nickname?: string } — 기본값 "DEV 테스터"
  */
 export async function POST(req: NextRequest) {
-  if (process.env.NODE_ENV === 'production') {
+  const isLocalDev = process.env.NODE_ENV !== 'production';
+  const explicitlyEnabled = process.env.ENABLE_DEV_LOGIN === 'true';
+  if (!isLocalDev && !explicitlyEnabled) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 

@@ -1,8 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/ping-active-checkins",
-      "schedule": "0 1,2,3,4 * * *"
-    }
-  ]
-}
+{}

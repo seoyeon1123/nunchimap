@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/db';
+import { readSession } from '@/lib/auth';
+import { countActiveCheckInsByPlace } from '@/lib/live';
 
 const VALID_SIGNALS = ['green', 'yellow', 'red', 'gray'] as const;
 const VALID_TAGS = ['outlet', 'wifi', 'quiet', 'spacious', 'long_stay', 'open_24h'] as const;
@@ -111,5 +113,113 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ places });
+  // 3) 진행 중 체크인 수 일괄 조회 → 마커 뱃지에 사용
+  const activeCounts = await countActiveCheckInsByPlace(
+    supabase,
+    places.map((p) => p.id),
+  );
+  const enriched = places.map((p) => ({
+    ...p,
+    active_count: activeCounts.get(p.id) ?? 0,
+  }));
+
+  return NextResponse.json({ places: enriched });
+}
+
+/**
+ * POST /api/places
+ *
+ * 사용자가 검색에서 카페를 찾지 못했을 때, 카카오 keyword 검색 결과(또는 직접 입력)로
+ * 새 카페를 등록한다.
+ *
+ * Body: {
+ *   kakao_place_id: string,  // 카카오 place id (중복 방지 키)
+ *   name: string,
+ *   address?: string,
+ *   road_address?: string,
+ *   lat: number,
+ *   lng: number,
+ * }
+ *
+ * 이미 등록된 kakao_place_id 면 기존 row 의 id 를 그대로 반환 (idempotent).
+ */
+export async function POST(req: NextRequest) {
+  const session = await readSession(req);
+  if (!session) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  const body = (await req.json().catch(() => ({}))) as {
+    kakao_place_id?: string;
+    name?: string;
+    address?: string;
+    road_address?: string;
+    lat?: number;
+    lng?: number;
+  };
+
+  const kakaoId = body.kakao_place_id?.trim();
+  const name = body.name?.trim();
+  const lat = typeof body.lat === 'number' ? body.lat : NaN;
+  const lng = typeof body.lng === 'number' ? body.lng : NaN;
+
+  if (!kakaoId) {
+    return NextResponse.json(
+      { error: 'kakao_place_id 가 필요해요.' },
+      { status: 400 },
+    );
+  }
+  if (!name) {
+    return NextResponse.json({ error: 'name 이 필요해요.' }, { status: 400 });
+  }
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < 33 || lat > 39 ||
+    lng < 124 || lng > 132
+  ) {
+    return NextResponse.json(
+      { error: '좌표가 한국 범위를 벗어났어요.' },
+      { status: 400 },
+    );
+  }
+
+  const supabase = getServiceClient();
+
+  // 중복 — 이미 있으면 그 id 그대로 반환
+  const { data: existing } = await supabase
+    .from('places')
+    .select('id')
+    .eq('kakao_place_id', kakaoId)
+    .maybeSingle();
+  if (existing) {
+    return NextResponse.json({ id: existing.id, created: false });
+  }
+
+  // GEOGRAPHY 컬럼은 POINT(lng lat) 순서 — PostGIS 표준
+  const wkt = `POINT(${lng} ${lat})`;
+
+  const { data: inserted, error: insErr } = await supabase
+    .from('places')
+    .insert({
+      kakao_place_id: kakaoId,
+      name,
+      address: body.address?.trim() || null,
+      road_address: body.road_address?.trim() || null,
+      location: wkt,
+      cached_signal: 'gray',
+      external_seed_data: { source: 'user_added_via_app', by_uid: session.uid },
+    })
+    .select('id')
+    .single();
+
+  if (insErr || !inserted) {
+    console.error('[/api/places POST] insert failed', insErr);
+    return NextResponse.json(
+      { error: insErr?.message ?? 'insert failed' },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ id: inserted.id, created: true });
 }

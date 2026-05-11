@@ -1,13 +1,17 @@
 /**
- * 카카오 로컬 검색 (CE7 카페) → 서울 카페 베이스 데이터 수집
+ * 카카오 로컬 검색 (CE7 카페) → 전국 광역시 카페 베이스 데이터 수집
  *
  * 사용법:
  *   1) .env.local 에 KAKAO_REST_API_KEY 채워넣기
- *   2) npm run fetch:cafes -- --dry-run  (서울 1/16 영역만 프로브)
- *   3) npm run fetch:cafes               (전체 서울)
+ *   2) npm run fetch:cafes -- --dry-run                (서울 1/16 영역만 프로브)
+ *   3) npm run fetch:cafes                              (REGIONS 전체 — 기본)
+ *   4) npm run fetch:cafes -- --regions=seoul,gyeonggi  (특정 지역만)
  *
  * 카카오 로컬 검색 한도: 쿼리당 최대 675건 (45페이지 × 15건).
- *   서울 전체 bbox에서 시작해, total_count 가 한도를 넘는 영역만 4분할 재귀.
+ *   각 지역 bbox에서 시작해, total_count 가 한도를 넘는 영역만 4분할 재귀.
+ *
+ * 데이터는 모두 data/cafes.json 한 파일에 머지 (kakao_place_id 로 dedup).
+ * 중간에 끊겨도 30초 주기 자동저장 + 다음 실행 시 이어받기됨.
  *
  * 응답에 좌표(x=lng, y=lat)가 포함되므로 geocode 단계 불필요.
  * 다음: npm run load:cafes
@@ -27,20 +31,31 @@ const MAX_PAGES = 45;
 const MAX_PER_RECT = MAX_PAGES * PAGE_SIZE; // 675
 const MAX_DEPTH = 7;
 
-// 서울 외곽 대략 bbox
-const SEOUL_BBOX: Bbox = {
-  sw_lng: 126.760,
-  sw_lat: 37.413,
-  ne_lng: 127.190,
-  ne_lat: 37.715,
-};
-
 interface Bbox {
   sw_lng: number;
   sw_lat: number;
   ne_lng: number;
   ne_lat: number;
 }
+
+/**
+ * 전국 광역시·도 BBOX 매핑.
+ * 각 지역은 카카오 4분할 재귀로 알아서 세분화되므로 bbox 범위는 외곽 여유 있게 잡아도 OK.
+ * 인구 밀집 지역 위주 — 산간/해상은 fetch 호출이 헛돌 뿐 데이터엔 영향 없음.
+ */
+const REGIONS: Record<string, Bbox> = {
+  seoul:    { sw_lng: 126.760, sw_lat: 37.413, ne_lng: 127.190, ne_lat: 37.715 },
+  gyeonggi: { sw_lng: 126.380, sw_lat: 36.890, ne_lng: 127.910, ne_lat: 38.300 },
+  incheon:  { sw_lng: 126.380, sw_lat: 37.180, ne_lng: 126.780, ne_lat: 37.590 },
+  busan:    { sw_lng: 128.760, sw_lat: 35.050, ne_lng: 129.320, ne_lat: 35.400 },
+  daegu:    { sw_lng: 128.460, sw_lat: 35.700, ne_lng: 128.760, ne_lat: 35.970 },
+  daejeon:  { sw_lng: 127.250, sw_lat: 36.230, ne_lng: 127.560, ne_lat: 36.510 },
+  gwangju:  { sw_lng: 126.690, sw_lat: 35.090, ne_lng: 127.020, ne_lat: 35.290 },
+  ulsan:    { sw_lng: 129.080, sw_lat: 35.430, ne_lng: 129.470, ne_lat: 35.690 },
+  sejong:   { sw_lng: 127.150, sw_lat: 36.400, ne_lng: 127.380, ne_lat: 36.620 },
+};
+
+const ALL_REGION_KEYS = Object.keys(REGIONS);
 
 interface KakaoDoc {
   id: string;
@@ -86,16 +101,33 @@ async function fetchPage(authKey: string, bbox: Bbox, page: number) {
     }
 
     const body = await res.text();
-    const isQuota = res.status === 429 || /limit has been exceeded/i.test(body);
-    if (isQuota && attempt < MAX_RETRIES) {
-      const wait = Math.min(60_000, 2_000 * 2 ** attempt); // 2s, 4s, 8s, 16s, 32s
+
+    // 카카오 분류:
+    //   429 → 초당 속도 제한 (재시도 의미 있음)
+    //   400 + code:-10 + "API limit has been exceeded" → 일일 쿼터 소진 (재시도 무의미)
+    //   기타 4xx → 즉시 실패
+    const isCode10 = /"code"\s*:\s*-10/.test(body);
+    const isDailyQuota =
+      isCode10 ||
+      /daily.*(quota|limit)|일.*한도|quota.*exceed/i.test(body);
+    const isRateLimit = res.status === 429;
+
+    if (isDailyQuota) {
+      throw new Error(
+        `Kakao 일일 쿼터 소진 (code:-10). 내일 00:00(KST) 리셋 후 재시도하거나 다른 REST API 키로 교체하세요.\n  status=${res.status}\n  body=${body.slice(0, 300)}`,
+      );
+    }
+    if (isRateLimit && attempt < MAX_RETRIES) {
+      const wait = Math.min(60_000, 2_000 * 2 ** attempt);
       console.error(
-        `\n⚠️  쿼터/속도 제한 감지 (status=${res.status}). ${wait / 1000}초 대기 후 재시도 (${attempt + 1}/${MAX_RETRIES})`,
+        `\n⚠️  초당 속도제한 (429). ${wait / 1000}초 대기 후 재시도 (${attempt + 1}/${MAX_RETRIES})`,
       );
       await sleep(wait);
       continue;
     }
-    throw new Error(`Kakao HTTP ${res.status}: ${body.slice(0, 300)}`);
+    throw new Error(
+      `Kakao HTTP ${res.status}\n  url=${url}\n  body=${body.slice(0, 400)}`,
+    );
   }
   throw new Error('Kakao 재시도 한도 초과');
 }
@@ -161,13 +193,31 @@ async function collect(
   }
 
   process.stdout.write(
-    `  depth=${depth} total=${first.meta.total_count} 누적=${out.size}      \r`,
+    `  depth=${depth} total=${first.meta.total_count} 누적=${out.size} calls=${stats.calls}      \r`,
   );
+}
+
+function parseRegionsArg(): string[] {
+  const arg = process.argv.find((a) => a.startsWith('--regions='));
+  if (!arg) return ALL_REGION_KEYS;
+  const list = arg
+    .slice('--regions='.length)
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const unknown = list.filter((r) => !REGIONS[r]);
+  if (unknown.length > 0) {
+    console.error(`❌ 알 수 없는 지역: ${unknown.join(', ')}`);
+    console.error(`   가능한 값: ${ALL_REGION_KEYS.join(', ')}`);
+    process.exit(1);
+  }
+  return list;
 }
 
 async function main() {
   const authKey = process.env.KAKAO_REST_API_KEY;
   const dryRun = process.argv.includes('--dry-run');
+  const regions = parseRegionsArg();
 
   if (!authKey) {
     console.error('❌ KAKAO_REST_API_KEY 가 .env.local 에 설정되지 않았습니다.');
@@ -175,7 +225,12 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`🚀 카카오 로컬 검색 (CE7 카페) 시작 (dryRun=${dryRun}, interval=${REQUEST_INTERVAL_MS}ms)`);
+  console.log(
+    `🚀 카카오 로컬 검색 (CE7 카페) 시작 (dryRun=${dryRun}, interval=${REQUEST_INTERVAL_MS}ms)`,
+  );
+  if (!dryRun) {
+    console.log(`   대상 지역(${regions.length}): ${regions.join(', ')}`);
+  }
 
   const outDir = path.join(process.cwd(), 'data');
   await fs.mkdir(outDir, { recursive: true });
@@ -204,24 +259,36 @@ async function main() {
   let saveTimer: NodeJS.Timeout | null = null;
   if (!dryRun) {
     saveTimer = setInterval(async () => {
-      await fs.writeFile(outPath, JSON.stringify(Array.from(out.values()), null, 2), 'utf-8');
+      await fs.writeFile(
+        outPath,
+        JSON.stringify(Array.from(out.values()), null, 2),
+        'utf-8',
+      );
     }, 30_000);
   }
 
   try {
     if (dryRun) {
       // 서울 좌상단 1/16 영역만 프로브 (북서쪽 — 종로/은평 부근)
-      const sub = quadSplit(quadSplit(SEOUL_BBOX)[2])[2];
+      const sub = quadSplit(quadSplit(REGIONS.seoul)[2])[2];
       await collect(authKey, sub, 0, out, stats);
     } else {
-      await collect(authKey, SEOUL_BBOX, 0, out, stats);
+      for (const key of regions) {
+        const before = out.size;
+        const startedAt = Date.now();
+        console.log(`\n📍 ${key} 시작 (현재 누적 ${before}건)`);
+        await collect(authKey, REGIONS[key], 0, out, stats);
+        const added = out.size - before;
+        const sec = Math.round((Date.now() - startedAt) / 1000);
+        console.log(`\n   ${key} 완료: +${added}건 (${sec}s)`);
+      }
     }
   } finally {
     if (saveTimer) clearInterval(saveTimer);
     const dedup = Array.from(out.values());
     await fs.writeFile(outPath, JSON.stringify(dedup, null, 2), 'utf-8');
     console.log(`\n✅ 저장: ${dedup.length}건 (API 호출 ${stats.calls}회) → ${outPath}`);
-    console.log(`   다음: npm run load:cafes  (geocode 단계는 건너뛰어도 됨)`);
+    console.log(`   다음: npm run load:cafes`);
   }
 }
 

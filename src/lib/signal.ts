@@ -106,10 +106,13 @@ export function computeSignalFromRows(rows: CheckInRow[]): {
     .map((x) => [x.row.duration_min as number, x.w]);
 
   const median = durationPairs.length > 0 ? weightedMedian(durationPairs) : 0;
+  // GPS 즉시 인증 흐름은 duration≈0 이라, 짧은 표본 1~2건이 신호를 비추로 떨어뜨리지 않도록
+  // "median<45 → red" 룰은 표본 ≥3건일 때만 적용. (redRatio 룰은 그대로)
+  const hasEnoughDuration = durationPairs.length >= 3;
 
   let signal: Signal;
   if (median >= 90 && greenRatio >= 0.6) signal = 'green';
-  else if (median < 45 || redRatio >= 0.4) signal = 'red';
+  else if ((hasEnoughDuration && median < 45) || redRatio >= 0.4) signal = 'red';
   else signal = 'yellow';
 
   return { signal, median_min: Math.round(median), count: dedup.length };

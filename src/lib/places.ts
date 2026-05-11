@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { recomputeAndCache } from './signal';
+import { LiveSummary, loadLiveForPlace } from './live';
 
 export interface PlaceDetail {
   id: number;
@@ -40,6 +41,7 @@ export interface PlaceDetailBundle {
   reviews: RecentReview[];
   tags: TagAgg[];
   verifiedCount: number;
+  liveSummary: LiveSummary;
 }
 
 /**
@@ -52,7 +54,7 @@ export async function loadPlaceDetail(
   supabase: SupabaseClient,
   id: number,
 ): Promise<PlaceDetailBundle | null> {
-  const [placeRes, checkInsRes, tagVotesRes] = await Promise.all([
+  const [placeRes, checkInsRes, tagVotesRes, liveRes] = await Promise.all([
     supabase.from('places_view').select('*').eq('id', id).maybeSingle(),
     supabase
       .from('check_ins')
@@ -65,6 +67,7 @@ export async function loadPlaceDetail(
       .from('place_tag_votes')
       .select('vote,tags(code,label)')
       .eq('place_id', id),
+    loadLiveForPlace(supabase, id, 1),
   ]);
   // count 쿼리는 별도 await — head:true 가 같은 Promise.all 안에서 다른 select 응답에 새어든다.
   const verifiedRes = await supabase
@@ -126,5 +129,6 @@ export async function loadPlaceDetail(
     reviews: (checkInsRes.data ?? []) as RecentReview[],
     tags: Array.from(tagAgg.values()),
     verifiedCount: verifiedRes.count ?? 0,
+    liveSummary: liveRes.summary,
   };
 }

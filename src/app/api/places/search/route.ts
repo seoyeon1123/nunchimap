@@ -1,5 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/db';
+import { countActiveCheckInsByPlace } from '@/lib/live';
+
+interface SearchPlace {
+  id: number;
+  [k: string]: unknown;
+}
+
+async function attachActiveCount(
+  supabase: ReturnType<typeof getServiceClient>,
+  places: SearchPlace[],
+): Promise<Array<SearchPlace & { active_count: number }>> {
+  const counts = await countActiveCheckInsByPlace(
+    supabase,
+    places.map((p) => p.id),
+  );
+  return places.map((p) => ({ ...p, active_count: counts.get(p.id) ?? 0 }));
+}
 
 /**
  * GET /api/places/search?q=&near=lat,lng&limit=20
@@ -32,7 +49,9 @@ export async function GET(req: NextRequest) {
         max_results: limit,
       });
       if (!rpcRes.error) {
-        return NextResponse.json({ places: rpcRes.data ?? [] });
+        return NextResponse.json({
+          places: await attachActiveCount(supabase, rpcRes.data ?? []),
+        });
       }
       console.error('[/api/places/search] search_places_near failed:', rpcRes.error);
       // 폴백: q-only RPC
@@ -47,5 +66,7 @@ export async function GET(req: NextRequest) {
     console.error('[/api/places/search] search_places failed:', rpcRes.error);
     return NextResponse.json({ error: rpcRes.error.message }, { status: 500 });
   }
-  return NextResponse.json({ places: rpcRes.data ?? [] });
+  return NextResponse.json({
+    places: await attachActiveCount(supabase, rpcRes.data ?? []),
+  });
 }

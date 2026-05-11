@@ -34,9 +34,11 @@ test('green 1건(120m, gps) → green, count=1, median=120', () => {
   assert.equal(r.median_min, 120);
 });
 
-test('green 1건이라도 median<45 면 red', () => {
+test('표본 부족(<3건) 이면 median 룰 미적용 → yellow (예: GPS 즉시 인증 1건만 있는 경우)', () => {
+  // GPS 즉시 인증 흐름은 duration≈0 이라, 1~2건만으로 비추 처리하지 않음.
+  // 신호 자체는 green 이지만 데이터 부족으로 보수적으로 yellow.
   const r = computeSignalFromRows([row({ signal: 'green', duration_min: 30 })]);
-  assert.equal(r.signal, 'red');
+  assert.equal(r.signal, 'yellow');
 });
 
 test('green 1건 median 60 → yellow (90 미만)', () => {

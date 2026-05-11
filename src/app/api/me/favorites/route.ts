@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readSession } from '@/lib/auth';
 import { getServiceClient } from '@/lib/db';
+import { countActiveCheckInsByPlace } from '@/lib/live';
 
 /**
  * GET /api/me/favorites
@@ -47,5 +48,14 @@ export async function GET(req: NextRequest) {
     .map((r) => r.places)
     .filter((p): p is NonNullable<Row['places']> => p != null);
 
-  return NextResponse.json({ places });
+  const counts = await countActiveCheckInsByPlace(
+    supabase,
+    places.map((p) => p.id),
+  );
+  const enriched = places.map((p) => ({
+    ...p,
+    active_count: counts.get(p.id) ?? 0,
+  }));
+
+  return NextResponse.json({ places: enriched });
 }
